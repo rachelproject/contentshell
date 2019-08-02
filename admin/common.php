@@ -15,11 +15,12 @@ require_once("lang/lang." . getlang() . ".php");
 date_default_timezone_set('Etc/UCT');
 
 #-------------------------------------------
-# returns an associative array of modules from the
-# filesystem - does not check the database at all
-#-------------------------------------------
+## returns an associative array of modules from the
+## filesystem - does not check the database at all
+## includes support for multi-lingual, template.php modules.
+##-------------------------------------------
 function getmods_fs() {
-
+    global $debug ;
     $absModPath = getAbsModPath();
     if (!is_dir($absModPath)) { return array(); }
     $relModPath = getRelModPath();
@@ -33,7 +34,6 @@ function getmods_fs() {
         if (preg_match("/^\./", $moddir)) continue; // skip hidden files
 
         if (is_dir("$absModPath/$moddir")) { // look in dirs only
-
             $fragment = "";
             if (file_exists("$absModPath/$moddir/rachel-index.php")) {
                 # new name - less confusing, and
@@ -44,8 +44,23 @@ function getmods_fs() {
                 $fragment = "$absModPath/$moddir/index.htmlf";
             }
 
-            if ($fragment) { // check for index fragment
+          // We use the template.php if it exists, otherwise we look at $fragment for html based clues to module info.
+          // Note that including template.php instead of going straight to manifest.json allows template to setup multi-lingual
+          // and partial translation support without us needing to repeat that code here.
+          // TODO: if a standardizations is to exist for $version in the future, make sure it is commented in template.php of new module template.
 
+          if (file_exists("$absModPath/$moddir/template.php")) {               // template module
+            $templ = array();
+            include "$absModPath/$moddir/template.php";
+            if($debug) {error_log("getmods_fs templ-> " . json_encode($templ));}
+            if(isset($templ["title"])) {$title = $templ["title"];} else {$title = "no title";}
+            if(isset($templ["version"])) {$version = $templ["version"];} else {$version = "v0.0";}
+            $hidden = false;
+            $templ = array();
+          } else {                                                             // non-template module
+
+            if ($fragment) {                            // yes index fragment
+                $hidden = false;
                 $content = file_get_contents($fragment);
 
                 # pull the title from the file
@@ -66,37 +81,33 @@ function getmods_fs() {
                 preg_match("/<!--\s*version\s*=\s*(?:\"|')?([^\"'\s]+?)(?:\"|')?\s*-->/", $content, $match);
                 if (isset($match[1])) { $version = $match[1]; }
 
-                # save info about this module
-                $fsmods{ $moddir } = array(
-                    'dir'      => "$relModPath/$moddir",
-                    'moddir'   => $moddir,
-                    'title'    => $title,
-                    'position' => 0,
-                    'hidden'   => false,
-                    'fragment' => $fragment,
-                    'version'  => $version,
-                );
-
-            } else {
-
-                # save info about this incomplete module
-                $fsmods{ $moddir } = array(
-                    'dir'      => "$relModPath/$moddir",
-                    'moddir'   => $moddir,
-                    'title'    => $moddir,
-                    'position' => 0,
-                    'hidden'   => true,
-                    'fragment' => false,
-                    'version'  => "",
-                );
+            } else {                                    // no index fragment
+                # set values for incomplete module
+                $fragment = false;
+                $version = "";
+                $hidden = true;
+                $title = $moddir;
             }
+          }                                                                    // end non-template module
+
+        # save info about this module
+        $fsmods{ $moddir } = array(
+            'dir'      => "$relModPath/$moddir",
+            'moddir'   => $moddir,
+            'title'    => $title,
+            'position' => 0,
+            'hidden'   => $hidden,
+            'fragment' => $fragment,
+            'version'  => $version,
+        );
+        if($debug) {error_log("getmods_fs fsmods-> " . json_encode($fsmods{$moddir}));}
+
         }
     }
 
     closedir($handle);
 
     return $fsmods;
-
 }
 
 #-------------------------------------------
