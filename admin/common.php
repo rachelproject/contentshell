@@ -776,4 +776,96 @@ function run_rsyncd() {
     return $rv;
 }
 
+#-------------------------------------------
+# this function scans and includes per module contributions of divs to a page
+# it is used by index.php for main portal navigation but also supports 
+# admin and stats inclusion by changing the inclusion_file.
+# example usage... echo show_module_contributions('rachel-admin.php');
+# PG - consideration should be given to object buffering in any php that calls this if there is 
+# a chance that headers may be sent from an included file (admin authorization for example).
+# to use object buffering, add ob_start(); to top of index.php and ob_end_flush(); to end
+#-------------------------------------------
+function show_module_contributions($inclusion_file) {
+    global $debug;       // PG suggestion to permit debug error_log lines to stay in code. NULL is no.
+    global $lang;
+    if(!isset($inclusion_file)) { $inclusion_file = 'rachel-index.php'; }
+
+    $contribs_output = '';
+    $modcount = 0;
+    $fsmods = getmods_fs();
+
+    # if there were any modules found in the filesystem
+    if ($fsmods) {
+
+        # get a list from the databases (where the sorting
+        # and visibility is stored)
+        $dbmods = getmods_db();
+
+        # populate the module list from the filesystem
+        # with the visibility/sorting info from the database
+        foreach (array_keys($dbmods) as $moddir) {
+            if (isset($fsmods[$moddir])) {
+                $fsmods[$moddir]['position'] = $dbmods[$moddir]['position'];
+                $fsmods[$moddir]['hidden'] = $dbmods[$moddir]['hidden'];
+            }
+        }
+
+        # custom sorting function in common.php
+        uasort($fsmods, 'bypos');
+
+        # whether or not we were able to get anything
+        # from the DB, we show what we found in the filesystem
+        foreach (array_values($fsmods) as $mod) {
+	    if($debug){ error_log('common.php, mod-> ' . json_encode($mod)); }
+	    if (!$mod['fragment'] || $mod['hidden']) { continue; }
+            $dir  = $mod['dir'];
+            $moddir  = $mod['moddir'];
+            $modfragindex = $mod['fragment'];
+
+	    # PG - index.htmlf has been deprecated, but $mod['fragment'] may still contain it, so the following if is necessary
+	    # note that we assume any module with non-index inclusion_files would use the newer rachel-index.php not index.htmlf
+	    if($inclusion_file == 'rachel-index.php') {
+            	$modfraginclude = $modfragindex; 
+	    } else {
+                $modfraginclude = str_replace("rachel-index.php",$inclusion_file,$mod['fragment']);
+	    }
+
+	    # PG - I'm forcing include output into a variable in case we want to do post processing and to avoid
+	    # direct to browser output from within a function, we return $contribs_output below for the main php to echo
+            if (file_exists($modfraginclude)) {
+		$modfragoutput = '';
+		ob_start();
+                include $modfraginclude;
+		$modfragoutput = ob_get_clean();  // post process on this if desired, only turns off most recent object buffer.
+		$contribs_output .=  $modfragoutput;
+                ++$modcount;
+            }
+	    # PG - I've moved the modcount up to only count the modules with the inclusion_file
+            # ++$modcount;
+        }
+
+    }
+
+    # PG - is outputting an error on 0 inclusion_files the desired behavior in all situations or just rachel-index.php?  
+    # if index only, index.php could check length of returned output and present error,
+    # if everywhere, it should be left here, but the error messages and default behaviour may need to be updated.
+    if ($modcount == 0) {
+	switch ($inclusion_file) {
+		case "rachel-index.php":
+		        return $lang['no_mods_error'];
+			break;
+		case "rachel-admin.php":
+		        return;
+			break;
+		case "rachel-stats.php":
+		        return;
+			break;
+		default: return;
+	}
+    } else {
+	return $contribs_output;
+    }
+
+}
+
 ?>
